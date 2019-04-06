@@ -84,7 +84,7 @@ class Spider(Thread):
         Thread(target=self.join_dht).start()
         Thread(target=self.receiver).start()
         Thread(target=self.sniffer).start()
-        for _ in xrange(50):  # 防止inquiry_info_queue消费过慢
+        for _ in xrange(100):  # 防止inquiry_info_queue消费过慢
             Thread(target=self.inquirer).start()
         Thread(target=self.recorder).start()
         Thread.start(self)
