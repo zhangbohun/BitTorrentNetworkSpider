@@ -17,6 +17,7 @@ from libs.bencode import bencode, bdecode
 def random_id():
     return hashlib.sha1(''.join(chr(random.randint(0, 255)) for _ in xrange(20))).digest()
 
+
 def get_neighbor_id(target, end=10):
     return target[:end] + random_id()[end:]
 
@@ -218,15 +219,12 @@ class Spider(Thread):
             # 只用于保证局部无重复，实际数据唯一性通过数据库唯一键保证
             inquiry_info_bloom_filter = BloomFilter(5000, 5)
             for _ in xrange(1000):
-                try:
-                    announce = self.inquiry_info_queue.get(False)  # not block
-                    if inquiry_info_bloom_filter.add(announce[0] + announce[1][0]):
-                        # threads for download metadata
-                        t = Thread(target=MetadataInquirer.inquire,
-                                   args=(announce[0], announce[1], self.metadata_queue, 7))  # 超时时间不要太长防止短时间内线程过多
-                        t.start()
-                except:
-                    pass
+                announce = self.inquiry_info_queue.get()  # block
+                if inquiry_info_bloom_filter.add(announce[0] + announce[1][0]):
+                    # threads for download metadata
+                    t = Thread(target=MetadataInquirer.inquire,
+                               args=(announce[0], announce[1], self.metadata_queue, 7))  # 超时时间不要太长防止短时间内线程过多
+                    t.start()
 
     # 记录种子信息
     def recorder(self):
@@ -240,33 +238,30 @@ class Spider(Thread):
             sqlite_util.executescript(
                 'create table "matadata" ("hash" text primary key not null,"name"  text,"size"  text);')
         while self.isSpiderWorking:
+            metadata = self.metadata_queue.get()  # block
+            name = metadata['name']
             try:
-                metadata = self.metadata_queue.get(False)  # not block
-                name = metadata['name']
+                name = name.decode('utf8')
+            except:
                 try:
-                    name = name.decode('utf8')
+                    name = name.decode('gb18030')
                 except:
                     try:
-                        name = name.decode('gb18030')
+                        name = decodeh.decode(name)
                     except:
-                        try:
-                            name = decodeh.decode(name)
-                        except:
-                            continue
-                try:
-                    sqlite_util.execute(
-                        'insert into matadata (hash,name,size)values (?,?,?);',
-                        (metadata['hash'], name, metadata['size']))
-                    # import json
-                    # print json.dumps(metadata, ensure_ascii=False).decode('utf-8')
-                except:
-                    # import traceback
-                    # traceback.print_exc()
-                    # 通过hash属性唯一键去重
-                    # print metadata['hash']
-                    pass
+                        continue
+            try:
+                sqlite_util.execute(
+                    'insert into matadata (hash,name,size)values (?,?,?);',
+                    (metadata['hash'], name, metadata['size']))
+                # import json
+                # print json.dumps(metadata, ensure_ascii=False).decode('utf-8')
             except:
-                sleep(0.5)
+                # import traceback
+                # traceback.print_exc()
+                # 通过hash属性唯一键去重
+                # print metadata['hash']
+                pass
 
 
 # 简化版布隆过滤器
