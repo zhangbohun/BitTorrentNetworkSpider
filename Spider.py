@@ -104,20 +104,23 @@ class Spider(Thread):
         for _ in xrange(20):
             if len(self.node_list) == 0:
                 self.send_find_node(random.choice(BOOTSTRAP_NODES), self.nid)
-            sleep(10)
+            if self.isSpiderWorking:
+                sleep(10)
 
     # 获取Node信息
     def sniffer(self):
         while self.isSpiderWorking:
             for _ in xrange(200):
-                if len(self.node_list) == 0:
-                    sleep(1)
-                else:
-                    # 伪装成目标相邻点在查找
-                    # print('send packet')
-                    node = self.node_list.pop(0)  # 线程安全 global interpreter lock
-                    self.send_find_node((node.ip, node.port), get_neighbor_id(node.nid))
-            sleep(10)
+                if self.isSpiderWorking:
+                    if len(self.node_list) == 0:
+                        sleep(1)
+                    else:
+                        # 伪装成目标相邻点在查找
+                        # print('send packet')
+                        node = self.node_list.pop(0)  # 线程安全 global interpreter lock
+                        self.send_find_node((node.ip, node.port), get_neighbor_id(node.nid))
+            if self.isSpiderWorking:
+                sleep(10)
 
     # 接收ping, find_node, get_peers, announce_peer请求和find_node回复
     def receiver(self):
@@ -219,12 +222,16 @@ class Spider(Thread):
             # 只用于保证局部无重复，实际数据唯一性通过数据库唯一键保证
             inquiry_info_bloom_filter = BloomFilter(5000, 5)
             for _ in xrange(1000):
-                announce = self.inquiry_info_queue.get()  # block
-                if inquiry_info_bloom_filter.add(announce[0] + announce[1][0]):
-                    # threads for download metadata
-                    t = Thread(target=MetadataInquirer.inquire,
-                               args=(announce[0], announce[1], self.metadata_queue, 7))  # 超时时间不要太长防止短时间内线程过多
-                    t.start()
+                if self.isSpiderWorking:
+                    try:
+                        announce = self.inquiry_info_queue.get(timeout=0.3)
+                        if inquiry_info_bloom_filter.add(announce[0] + announce[1][0]):
+                            # threads for download metadata
+                            t = Thread(target=MetadataInquirer.inquire,
+                                       args=(announce[0], announce[1], self.metadata_queue, 7))  # 超时时间不要太长防止短时间内线程过多
+                            t.start()
+                    except:
+                        pass
 
     # 记录种子信息
     def recorder(self):
@@ -238,30 +245,33 @@ class Spider(Thread):
             sqlite_util.executescript(
                 'create table "matadata" ("hash" text primary key not null,"name"  text,"size"  text);')
         while self.isSpiderWorking:
-            metadata = self.metadata_queue.get()  # block
-            name = metadata['name']
             try:
-                name = name.decode('utf8')
-            except:
+                metadata = self.metadata_queue.get(timeout=0.5)
+                name = metadata['name']
                 try:
-                    name = name.decode('gb18030')
+                    name = name.decode('utf8')
                 except:
                     try:
-                        name = decodeh.decode(name)
+                        name = name.decode('gb18030')
                     except:
-                        continue
-            try:
-                sqlite_util.execute(
-                    'insert into matadata (hash,name,size)values (?,?,?);',
-                    (metadata['hash'], name, metadata['size']))
-                # import json
-                # print json.dumps(metadata, ensure_ascii=False).decode('utf-8')
+                        try:
+                            name = decodeh.decode(name)
+                        except:
+                            continue
+                try:
+                    sqlite_util.execute(
+                        'insert into matadata (hash,name,size)values (?,?,?);',
+                        (metadata['hash'], name, metadata['size']))
+                    # import json
+                    # print json.dumps(metadata, ensure_ascii=False).decode('utf-8')
+                except:
+                    # import traceback
+                    # traceback.print_exc()
+                    # 通过hash属性唯一键去重
+                    # print metadata['hash']
+                    pass
             except:
-                # import traceback
-                # traceback.print_exc()
-                # 通过hash属性唯一键去重
-                # print metadata['hash']
-                pass
+                sleep(0.5)
 
 
 # 简化版布隆过滤器
@@ -283,15 +293,15 @@ class BloomFilter(object):
 
 
 if __name__ == '__main__':
-    threads = []
-    for i in xrange(3):
-        spider = Spider('0.0.0.0', 8087 + i, max_node_size=500)  # 需保证有公网ip且相应端口入方向通畅
+    spiderList = []
+    for i in xrange(10):
+        spider = Spider('0.0.0.0', 8087 + i, max_node_size=1500)  # 需保证有公网ip且相应端口入方向通畅
         spider.start()
+        spiderList.append(spider)
+        sleep(1)
 
-    sleep(60 * 60 * 60)  # 持续运行一段时间
+    sleep(60 * 60 * 8)  # 持续运行一段时间
 
-    k = 0
-    for i in threads:
-        i.stop()
-        i.join()
-        k = k + 1
+    for spider in spiderList:
+        spider.stop()
+        spider.join()
