@@ -284,14 +284,14 @@ class BloomFilter(object):
 
 if __name__ == '__main__':
     threads = []
-    for i in xrange(3):
-        spider = Spider('0.0.0.0', 8087 + i, max_node_size=500)  # 需保证有公网ip且相应端口入方向通畅
+    for i in xrange(10):
+        spider = Spider('0.0.0.0', 8087 + i, max_node_size=1500)  # 需保证有公网ip且相应端口入方向通畅
         spider.start()
+        threads.append(spider)
+        sleep(1)
 
-    sleep(60 * 60 * 60)  # 持续运行一段时间
+    sleep(60 * 60 * 8)  # 持续运行一段时间
 
-    k = 0
     for i in threads:
         i.stop()
         i.join()
-        k = k + 1
